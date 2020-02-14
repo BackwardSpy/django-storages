@@ -15,6 +15,7 @@
 #     file = models.FileField(upload_to='a/b/c/', storage=fs)
 
 import ftplib
+import io
 import os
 from datetime import datetime
 
@@ -23,10 +24,13 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.files.base import File
 from django.core.files.storage import Storage
 from django.utils.deconstruct import deconstructible
-from django.utils.six import BytesIO
-from django.utils.six.moves.urllib import parse as urlparse
 
 from storages.utils import setting
+
+try:
+    from django.utils.six.moves.urllib import parse as urlparse
+except ImportError:
+    from urllib import parse as urlparse
 
 
 class FTPStorageException(Exception):
@@ -37,13 +41,14 @@ class FTPStorageException(Exception):
 class FTPStorage(Storage):
     """FTP Storage class for Django pluggable storage system."""
 
-    def __init__(self, location=None, base_url=None):
+    def __init__(self, location=None, base_url=None, encoding=None):
         location = location or setting('FTP_STORAGE_LOCATION')
         if location is None:
             raise ImproperlyConfigured("You must set a location at "
                                        "instanciation or at "
                                        " settings.FTP_STORAGE_LOCATION'.")
         self.location = location
+        self.encoding = encoding or setting('FTP_STORAGE_ENCODING') or 'latin-1'
         base_url = base_url or settings.MEDIA_URL
         self._config = self._decode_location(location)
         self._base_url = base_url
@@ -84,6 +89,7 @@ class FTPStorage(Storage):
         # Real reconnect
         if self._connection is None:
             ftp = ftplib.FTP()
+            ftp.encoding = self.encoding
             try:
                 ftp.connect(self._config['host'], self._config['port'])
                 ftp.login(self._config['user'], self._config['passwd'])
@@ -105,7 +111,7 @@ class FTPStorage(Storage):
 
     def _mkremdirs(self, path):
         pwd = self._connection.pwd()
-        path_splitted = path.split('/')
+        path_splitted = os.path.split(path)
         for path_part in path_splitted:
             try:
                 self._connection.cwd(path_part)
@@ -138,7 +144,7 @@ class FTPStorage(Storage):
         return remote_file
 
     def _read(self, name):
-        memory_file = BytesIO()
+        memory_file = io.BytesIO()
         try:
             pwd = self._connection.pwd()
             self._connection.cwd(os.path.dirname(name))
@@ -251,7 +257,7 @@ class FTPStorageFile(File):
         self._storage = storage
         self._mode = mode
         self._is_dirty = False
-        self.file = BytesIO()
+        self.file = io.BytesIO()
         self._is_read = False
 
     @property
@@ -277,7 +283,7 @@ class FTPStorageFile(File):
     def write(self, content):
         if 'w' not in self._mode:
             raise AttributeError("File was opened for read-only access.")
-        self.file = BytesIO(content)
+        self.file = io.BytesIO(content)
         self._is_dirty = True
         self._is_read = True
 
